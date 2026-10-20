@@ -17,7 +17,7 @@ st.title("⚡ Cálculo de Faixa de Passagem — NBR 5422:2024")
 st.caption("Cálculo da largura da faixa de passagem conforme a Seção 17.2.2 da ABNT NBR 5422:2024")
 
 # ===================================================
-# BANCO DE DADOS DOS CABOS
+# BANCO DE DADOS DOS CABOS (Peso em kg/m)
 # ===================================================
 CABOS_CONDUTORES = {
     'Grosbeak': {'peso': 1.3028, 'area': 374.8, 'E': 7593, 'alpha': 189e-7, 'CR': 11427, 'D': 0.02515},
@@ -38,7 +38,6 @@ CABOS_PARA_RAIOS = {
 # CONSTANTES DA NORMA
 # ===================================================
 RHO_AR = 1.225  # kg/m³
-MU_AR = 1.45e-5  # m²/s
 Z_FL = 0.03     # Coeficiente de variação para frente lenta (Seção 9.4.1.1)
 
 # ===================================================
@@ -66,24 +65,14 @@ def desvio_padrao_angulo(Vp):
     return 2.25 * (1 - np.exp(-(Vp**2) / 230))
 
 def parcela_eletrica(tensao_kV, k_cs, k_aff, k_zfl, k_g, F_sf):
-    """
-    Seção 9.4.1.1 - Parcela elétrica da distância de segurança (frente lenta).
-    Fórmula exata da NBR 5422:2024.
-    """
     Us = tensao_kV
-    # Termo dentro da exponencial conforme a norma
     numerador = k_cs * (np.sqrt(2) / np.sqrt(3)) * Us * F_sf
     denominador = 1080 * (k_aff / k_zfl) * k_g
-    
     termo = numerador / denominador
     d_ff = 2.174 * np.exp(termo) - 1
-    
     return max(d_ff, 0.0)
 
 def calcular_distancia_horizontal(tensao_kV, k_cs, k_aff, k_zfl, k_g, P_bH, F_sf):
-    """
-    Seção 7.3.2 - Distância horizontal de segurança
-    """
     Pe = parcela_eletrica(tensao_kV, k_cs, k_aff, k_zfl, k_g, F_sf)
     return P_bH + Pe, Pe
 
@@ -137,7 +126,7 @@ with st.sidebar:
     k_cs = st.number_input("K_CS (Tabela 6)", min_value=1.0, max_value=2.0, value=1.35, step=0.01)
     k_aff = st.number_input("K_aff (atmosférico)", min_value=0.8, max_value=1.2, value=1.0, step=0.01)
     k_zff = st.number_input("K_zff", min_value=0.8, max_value=1.0, value=0.91, step=0.01)
-    k_zfl = 1 - 3 * Z_FL  # 0.91
+    k_zfl = 1 - 3 * Z_FL
 
     st.subheader("🏠 Obstáculo (Tabela 7)")
     tipo_obstaculo = st.selectbox("Tipo de obstáculo",
@@ -159,7 +148,6 @@ V_p10min = K_tur * V_R
 V_p30s = fator_integracao_10min_para_30s() * K_rug * V_p10min
 q0_30s = pressao_dinamica(V_p30s)
 
-# Cálculo da distância horizontal usando a tensão nominal
 D_H, P_e = calcular_distancia_horizontal(tensao_nominal, k_cs, k_aff, k_zfl, k_g, P_bH, F_sf)
 
 # ===================================================
@@ -241,31 +229,46 @@ with aba2:
         st.subheader("🏗️ Geometria da Linha")
 
         b = st.number_input("b — distância horizontal do eixo ao condutor mais afastado (m)",
-                            min_value=0.5, max_value=30.0, value=5.0, step=0.1)
+                            min_value=0.0, max_value=30.0, value=5.0, step=0.1)
+        
         comprimento_cadeia = st.number_input("Comprimento da cadeia de isoladores (m)",
-                                              min_value=0.5, max_value=10.0, value=2.0, step=0.1)
+                                              min_value=0.0, max_value=10.0, value=2.0, step=0.1)
+        
         flecha = st.number_input("Flecha do condutor (m)",
                                  min_value=0.1, max_value=50.0, value=10.0, step=0.1)
-        Lm = st.number_input("Vão médio L_m (m)", min_value=50.0, max_value=1000.0, value=300.0, step=10.0)
-        Lp = st.number_input("Vão gravante L_p (m)", min_value=50.0, max_value=1000.0, value=300.0, step=10.0)
+                                 
+        Lm = st.number_input("Vão médio L_m (m)", min_value=50.0, max_value=1500.0, value=300.0, step=10.0, 
+                             help="Média aritmética dos vãos adjacentes ao suporte (Seção 3.1.64 da NBR 5422).")
+        Lp = st.number_input("Vão gravante L_p (m)", min_value=50.0, max_value=1500.0, value=300.0, step=10.0,
+                             help="Distância entre os pontos com tangente horizontal das catenárias dos vãos adjacentes (Seção 3.1.63 da NBR 5422). Em terrenos planos e vãos iguais, L_p = L_m.")
 
         st.subheader("🔌 Cabo Condutor")
         cabo_nome = st.selectbox("Tipo de cabo", list(CABOS_CONDUTORES.keys()))
         cabo = CABOS_CONDUTORES[cabo_nome]
-        p_cond = cabo['peso'] * 9.81 / 1000  # N/m
+        
+        # CORREÇÃO AQUI: Removido o / 1000. O peso agora está em N/m corretamente.
+        p_cond = cabo['peso'] * 9.81  
         d_cabo = cabo['D']
+        
         st.caption(f"Peso linear: {p_cond:.4f} N/m | Diâmetro: {d_cabo*1000:.2f} mm")
 
         st.subheader("🌬️ Ângulo de Balanço (Seção 8.9)")
         K_bal = fator_efetividade_vento(V_p30s)
         beta_medio = calcular_angulo_balanco(q0_30s, d_cabo, Lm, p_cond, Lp, K_bal)
         sigma_beta = desvio_padrao_angulo(V_p30s)
-        beta_max = beta_medio + 2 * sigma_beta
+        
+        beta_max_calculado = beta_medio + 2 * sigma_beta
+        beta_max = min(beta_max_calculado, 90.0)
 
         st.metric("K (Figura 22)", f"{K_bal:.3f}")
         st.metric("β médio", f"{beta_medio:.2f}°")
         st.metric("σ_β", f"{sigma_beta:.2f}°")
         st.metric("β max = β + 2σ", f"{beta_max:.2f}°")
+        
+        if beta_max_calculado > 90.0:
+            st.warning(f"⚠️ O ângulo calculado ultrapassou 90° ({beta_max_calculado:.1f}°). O resultado foi limitado a 90° (cabo na horizontal). Verifique o vão, a velocidade do vento ou o tipo de cabo.")
+        else:
+            st.caption("ℹ️ O ângulo de balanço é calculado com a velocidade de rajada (30 s), o que eleva a força do vento.")
 
     with col_res:
         st.subheader("📐 Projeções e Resultado")
@@ -361,8 +364,7 @@ with aba3:
     Todos os coeficientes são rastreáveis à NBR 5422:2024.
     """)
 
-    # 1. VELOCIDADE DE VENTO DE 10 MIN
-    with st.expander("1. Velocidade de vento de 10 min para projeto (Seção 8.2.1)", expanded=True):
+    with st.expander("1. Velocidade de vento de 10 min para projeto (Seção 8.2.1)", expanded=False):
         bloco_memorial(
             titulo="1.1 Velocidade de 10 min para projeto",
             formula_latex=r"V_p = K_{tur} \cdot V_R",
@@ -375,8 +377,7 @@ with aba3:
             referencia_norma="ABNT NBR 5422:2024 — Seção 8.2.1.1 e Tabela 8"
         )
 
-    # 2. VELOCIDADE DE 30 S
-    with st.expander("2. Velocidade de vento de 30 s para projeto (Seção 8.2.2)", expanded=True):
+    with st.expander("2. Velocidade de vento de 30 s para projeto (Seção 8.2.2)", expanded=False):
         bloco_memorial(
             titulo="2.1 Velocidade de 30 s para projeto",
             formula_latex=r"V_{p30s} = K_{int} \cdot K_{alt} \cdot K_{rug} \cdot V_p",
@@ -391,8 +392,7 @@ with aba3:
             referencia_norma="ABNT NBR 5422:2024 — Seção 8.2.2.1, Tabelas 1 e 9"
         )
 
-    # 3. PRESSÃO DINÂMICA
-    with st.expander("3. Pressão dinâmica do vento (Seção 8.4.2)", expanded=True):
+    with st.expander("3. Pressão dinâmica do vento (Seção 8.4.2)", expanded=False):
         bloco_memorial(
             titulo="3.1 Pressão dinâmica $q_0$",
             formula_latex=r"q_0 = \frac{1}{2} \rho V_{p30s}^2",
@@ -405,8 +405,7 @@ with aba3:
             referencia_norma="ABNT NBR 5422:2024 — Seção 8.4.2"
         )
 
-    # 4. PARCELA ELÉTRICA (AGORA CORRIGIDA)
-    with st.expander("4. Parcela elétrica da distância de segurança (Seção 9.4.1.1)", expanded=True):
+    with st.expander("4. Parcela elétrica da distância de segurança (Seção 9.4.1.1)", expanded=False):
         bloco_memorial(
             titulo="4.1 Parcela elétrica $P_e$",
             formula_latex=r"P_e = 2{,}174 \cdot \exp\left[\frac{K_{cs} \frac{\sqrt{2}}{\sqrt{3}} U_s F_{sf}}{1080 \frac{K_{aff}}{K_{zfl}} k_g}\right] - 1",
@@ -425,8 +424,7 @@ with aba3:
             referencia_norma="ABNT NBR 5422:2024 — Seções 9.4.1.1, Tabelas 6, 7 e 14"
         )
 
-    # 5. DISTÂNCIA HORIZONTAL DE SEGURANÇA
-    with st.expander("5. Distância horizontal de segurança (Seção 7.3.2)", expanded=True):
+    with st.expander("5. Distância horizontal de segurança (Seção 7.3.2)", expanded=False):
         bloco_memorial(
             titulo="5.1 Distância horizontal de segurança $D_H$",
             formula_latex=r"D_H = P_{bH} + P_e",
@@ -439,8 +437,7 @@ with aba3:
             referencia_norma="ABNT NBR 5422:2024 — Seção 7.3.2, Tabela 7"
         )
 
-    # 6. FATOR DE EFETIVIDADE DO VENTO
-    with st.expander("6. Fator de efetividade do vento para ângulo de balanço (Figura 22)", expanded=True):
+    with st.expander("6. Fator de efetividade do vento para ângulo de balanço (Figura 22)", expanded=False):
         bloco_memorial(
             titulo="6.1 Fator $K$",
             formula_latex=r"K = 0{,}3 + 3{,}68 \cdot \exp(-0{,}163 \cdot V_p)\quad \text{para } V_p \ge 10\ \text{m/s}",
@@ -453,8 +450,7 @@ with aba3:
             referencia_norma="ABNT NBR 5422:2024 — Figura 22 (Seção 8.9.1)"
         )
 
-    # 7. ÂNGULO DE BALANÇO MÉDIO
-    with st.expander("7. Ângulo de balanço médio (Seção 8.9.1)", expanded=True):
+    with st.expander("7. Ângulo de balanço médio (Seção 8.9.1)", expanded=False):
         bloco_memorial(
             titulo="7.1 Ângulo de balanço médio $\\beta$",
             formula_latex=r"\beta = \arctan\left(K \cdot \frac{q_0 \cdot d \cdot L_m}{p_{cond} \cdot L_p}\right)",
@@ -463,7 +459,7 @@ with aba3:
             - $q_0$ = **{q0_30s:.2f} Pa** → calculado no item 3
             - $d$ = **{d_cabo*1000:.2f} mm** = **{d_cabo:.5f} m** → diâmetro do cabo *{cabo_nome}* (banco de dados)
             - $L_m$ = **{Lm:.1f} m** → informado (vão médio)
-            - $p_{{cond}}$ = **{p_cond:.4f} N/m** → peso linear do cabo *{cabo_nome}* = {cabo['peso']:.4f} kg/m × 9,81 / 1000
+            - $p_{{cond}}$ = **{p_cond:.4f} N/m** → peso linear do cabo *{cabo_nome}* = {cabo['peso']:.4f} kg/m × 9,81
             - $L_p$ = **{Lp:.1f} m** → informado (vão gravante)
             """,
             substituicao_latex=rf"\beta = \arctan\left({K_bal:.3f} \cdot \frac{{{q0_30s:.2f} \cdot {d_cabo:.5f} \cdot {Lm:.1f}}}{{{p_cond:.4f} \cdot {Lp:.1f}}}\right) = {beta_medio:.2f}^\circ",
@@ -471,8 +467,7 @@ with aba3:
             referencia_norma="ABNT NBR 5422:2024 — Seção 8.9.1"
         )
 
-    # 8. DESVIO-PADRÃO DO ÂNGULO
-    with st.expander("8. Desvio-padrão do ângulo de balanço (Seção 8.9.3)", expanded=True):
+    with st.expander("8. Desvio-padrão do ângulo de balanço (Seção 8.9.3)", expanded=False):
         bloco_memorial(
             titulo="8.1 Desvio-padrão $\\sigma_\\beta$",
             formula_latex=r"\sigma_\beta = 2{,}25 \cdot \left[1 - \exp\left(-\frac{V_p^2}{230}\right)\right]",
@@ -485,23 +480,22 @@ with aba3:
             referencia_norma="ABNT NBR 5422:2024 — Seção 8.9.3"
         )
 
-    # 9. ÂNGULO MÁXIMO
-    with st.expander("9. Ângulo máximo de balanço (Seção 8.9.4)", expanded=True):
+    with st.expander("9. Ângulo máximo de balanço (Seção 8.9.4)", expanded=False):
         bloco_memorial(
             titulo="9.1 Ângulo máximo $\\beta_{max}$",
-            formula_latex=r"\beta_{max} = \beta + 2\sigma_\beta",
+            formula_latex=r"\beta_{max} = \min(\beta + 2\sigma_\beta, 90^\circ)",
             origem_coeficientes=f"""
             - $\\beta$ = **{beta_medio:.2f}°** → calculado no item 7
             - $\\sigma_\\beta$ = **{sigma_beta:.2f}°** → calculado no item 8
             - Fator **2** → dois desvios-padrão, fixado em norma (Seção 8.9.4), **não calculado**
+            - **Limite Físico:** O ângulo máximo não pode ultrapassar 90° (condição horizontal). Se a soma ultrapassar, o valor é travado em 90°.
             """,
-            substituicao_latex=rf"\beta_{{max}} = {beta_medio:.2f} + 2 \cdot {sigma_beta:.2f} = {beta_max:.2f}^\circ",
+            substituicao_latex=rf"\beta_{{max}} = \min({beta_medio:.2f} + 2 \cdot {sigma_beta:.2f}, 90^\circ) = {beta_max:.2f}^\circ",
             resultado_latex=rf"\boxed{{\beta_{{max}} = {beta_max:.2f}^\circ}}",
-            referencia_norma="ABNT NBR 5422:2024 — Seção 8.9.4"
+            referencia_norma="ABNT NBR 5422:2024 — Seção 8.9.4 (com limite físico de 90°)"
         )
 
-    # 10. PROJEÇÕES E d
-    with st.expander("10. Projeções horizontais e parcela $d$ (Seção 17.2.2)", expanded=True):
+    with st.expander("10. Projeções horizontais e parcela $d$ (Seção 17.2.2)", expanded=False):
         bloco_memorial(
             titulo="10.1 Parcela $d$ (projeção da flecha + cadeia)",
             formula_latex=r"d = f \cdot \sin(\beta_{max}) + L_{cad} \cdot \sin(\beta_{max})",
@@ -515,8 +509,7 @@ with aba3:
             referencia_norma="ABNT NBR 5422:2024 — Seção 17.2.2.5.1"
         )
 
-    # 11. LARGURA DA FAIXA
-    with st.expander("11. Largura total da faixa de passagem (Seção 17.2.2.5.1)", expanded=True):
+    with st.expander("11. Largura total da faixa de passagem (Seção 17.2.2.5.1)", expanded=False):
         bloco_memorial(
             titulo="11.1 Largura $L$",
             formula_latex=r"L = 2 \cdot (b + d + D)",
@@ -531,7 +524,6 @@ with aba3:
             referencia_norma="ABNT NBR 5422:2024 — Seção 17.2.2.5.1"
         )
 
-    # RESUMO FINAL
     st.markdown("---")
     st.subheader("📋 Resumo Final")
     df_resumo = pd.DataFrame({
