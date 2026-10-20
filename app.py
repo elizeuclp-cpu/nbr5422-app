@@ -17,7 +17,7 @@ st.title("⚡ Cálculo de Faixa de Passagem — NBR 5422:2024")
 st.caption("Cálculo da largura da faixa de passagem conforme a Seção 17.2.2 da ABNT NBR 5422:2024")
 
 # ===================================================
-# BANCO DE DADOS DOS CABOS (do VHPT)
+# BANCO DE DADOS DOS CABOS
 # ===================================================
 CABOS_CONDUTORES = {
     'Grosbeak': {'peso': 1.3028, 'area': 374.8, 'E': 7593, 'alpha': 189e-7, 'CR': 11427, 'D': 0.02515},
@@ -37,72 +37,66 @@ CABOS_PARA_RAIOS = {
 # ===================================================
 # CONSTANTES DA NORMA
 # ===================================================
-RHO_AR = 1.225  # kg/m³ (densidade do ar ao nível do mar, 15°C)
-MU_AR = 1.45e-5  # m²/s (viscosidade cinemática do ar a 15°C)
+RHO_AR = 1.225  # kg/m³
+MU_AR = 1.45e-5  # m²/s
+Z_FL = 0.03     # Coeficiente de variação para frente lenta (Seção 9.4.1.1)
 
 # ===================================================
 # FUNÇÕES AUXILIARES
 # ===================================================
 
 def fator_turbulencia(regiao):
-    """Tabela 8 - Fator de turbulência por região"""
     return {'Sul': 1.08, 'Sudeste e Centro-Oeste': 1.12, 'Norte e Nordeste': 1.16}[regiao]
 
 def fator_rugosidade(categoria):
-    """Tabela 1 - Fator de rugosidade do terreno"""
     return {'A': 1.08, 'B': 1.00, 'C': 0.85, 'D': 0.67}[categoria]
 
 def fator_altura(h, z_ref=10.0):
-    """Fator de correção de altura (lei de potência, expoente 0,14)"""
     return (h / z_ref) ** 0.14
 
 def fator_integracao_10min_para_30s():
-    """Tabela 9 - Fator de conversão de 10 min para 30 s (valor típico)"""
     return 1.30
 
 def fator_efetividade_vento(Vp):
-    """Figura 22 - Fator de efetividade do vento para ângulo de balanço"""
     if Vp < 10:
         return 1.0
     return 0.3 + 3.68 * np.exp(-0.163 * Vp)
 
 def desvio_padrao_angulo(Vp):
-    """Seção 8.9.3 - Desvio-padrão do ângulo de balanço"""
     return 2.25 * (1 - np.exp(-(Vp**2) / 230))
 
-def parcela_eletrica(tensao_kV, k_cs, k_aff, k_zff, k_g):
+def parcela_eletrica(tensao_kV, k_cs, k_aff, k_zfl, k_g, F_sf):
     """
-    Seção 7.2.5 / 9.3.2 - Parcela elétrica da distância de segurança.
+    Seção 9.4.1.1 - Parcela elétrica da distância de segurança (frente lenta).
+    Fórmula exata da NBR 5422:2024.
     """
     Us = tensao_kV
-    termo = (Us * np.sqrt(2) / np.sqrt(3)) / (k_aff * k_zff * k_g)
-    d_ff = 1.642 * np.exp(termo - 1) - 1
+    # Termo dentro da exponencial conforme a norma
+    numerador = k_cs * (np.sqrt(2) / np.sqrt(3)) * Us * F_sf
+    denominador = 1080 * (k_aff / k_zfl) * k_g
+    
+    termo = numerador / denominador
+    d_ff = 2.174 * np.exp(termo) - 1
+    
     return max(d_ff, 0.0)
 
-def calcular_distancia_horizontal(tensao_kV, k_cs, k_aff, k_zff, k_g, P_bH):
+def calcular_distancia_horizontal(tensao_kV, k_cs, k_aff, k_zfl, k_g, P_bH, F_sf):
     """
-    Seção 7.3.2 - Distância horizontal de segurança: D_H = P_bH + P_e
+    Seção 7.3.2 - Distância horizontal de segurança
     """
-    Pe = parcela_eletrica(tensao_kV, k_cs, k_aff, k_zff, k_g)
+    Pe = parcela_eletrica(tensao_kV, k_cs, k_aff, k_zfl, k_g, F_sf)
     return P_bH + Pe, Pe
 
 def calcular_angulo_balanco(q0, d_cabo, Lm, p_cond, Lp, K):
-    """
-    Seção 8.9.1 - Ângulo de balanço médio
-    """
     if p_cond <= 0 or Lp <= 0:
         return 0.0
     argumento = K * q0 * d_cabo * Lm / (p_cond * Lp)
     return np.degrees(np.arctan(argumento))
 
 def pressao_dinamica(V):
-    """q0 = 0,5 * rho * V²"""
     return 0.5 * RHO_AR * V**2
 
 def bloco_memorial(titulo, formula_latex, origem_coeficientes, substituicao_latex, resultado_latex, referencia_norma):
-    """
-    Renderiza um bloco padronizado do memorial.
-    """
     st.markdown(f"#### {titulo}")
     st.caption(f"📘 {referencia_norma}")
     st.markdown("**Fórmula:**")
@@ -123,6 +117,10 @@ with st.sidebar:
 
     tensao_nominal = st.number_input("Tensão nominal (kV)", min_value=38.0, max_value=800.0, value=138.0, step=1.0)
     fator_tensao_max = st.number_input("Fator de tensão máxima Ftmo (p.u.)", min_value=1.0, max_value=1.2, value=1.05, step=0.01)
+    
+    st.subheader("⚡ Sobretensão de Frente Lenta")
+    F_sf = st.number_input("Fator de sobretensão F_sf (p.u.)", min_value=1.0, max_value=5.0, value=2.5, step=0.1, 
+                           help="Tabela 14 da NBR 5422. Se não houver estudo específico, adotar valores típicos (ex: 2,5 para 138 kV).")
 
     st.subheader("🌬️ Vento")
     regiao = st.selectbox("Região geopolítica (Tabela 8)", ['Sudeste e Centro-Oeste', 'Sul', 'Norte e Nordeste'])
@@ -139,6 +137,7 @@ with st.sidebar:
     k_cs = st.number_input("K_CS (Tabela 6)", min_value=1.0, max_value=2.0, value=1.35, step=0.01)
     k_aff = st.number_input("K_aff (atmosférico)", min_value=0.8, max_value=1.2, value=1.0, step=0.01)
     k_zff = st.number_input("K_zff", min_value=0.8, max_value=1.0, value=0.91, step=0.01)
+    k_zfl = 1 - 3 * Z_FL  # 0.91
 
     st.subheader("🏠 Obstáculo (Tabela 7)")
     tipo_obstaculo = st.selectbox("Tipo de obstáculo",
@@ -160,8 +159,8 @@ V_p10min = K_tur * V_R
 V_p30s = fator_integracao_10min_para_30s() * K_rug * V_p10min
 q0_30s = pressao_dinamica(V_p30s)
 
-tensao_max_op = tensao_nominal * fator_tensao_max
-D_H, P_e = calcular_distancia_horizontal(tensao_max_op, k_cs, k_aff, k_zff, k_g, P_bH)
+# Cálculo da distância horizontal usando a tensão nominal
+D_H, P_e = calcular_distancia_horizontal(tensao_nominal, k_cs, k_aff, k_zfl, k_g, P_bH, F_sf)
 
 # ===================================================
 # ABAS
@@ -180,11 +179,11 @@ with aba1:
     with col1:
         st.subheader("🔌 Tensão e Fatores")
         st.metric("Tensão nominal", f"{tensao_nominal:.1f} kV")
+        st.metric("Fator F_sf", f"{F_sf:.2f} p.u.")
         st.metric("Fator F_tmo", f"{fator_tensao_max:.3f}")
-        st.metric("Tensão máx. operação", f"{tensao_max_op:.2f} kV")
         st.metric("K_CS", f"{k_cs:.3f}")
         st.metric("K_aff", f"{k_aff:.3f}")
-        st.metric("K_zff", f"{k_zff:.3f}")
+        st.metric("K_zfl (frente lenta)", f"{k_zfl:.3f}")
         st.metric("k_g (Tabela 7)", f"{k_g:.3f}")
 
     with col2:
@@ -213,7 +212,7 @@ with aba1:
     $$D_H = P_{{bH}} + P_{{e}}$$
 
     - $P_{{bH}}$ = {P_bH:.2f} m (parcela básica, Tabela 7)
-    - $P_{{e}}$ = {P_e:.3f} m (parcela elétrica, calculada em 7.2.5.1)
+    - $P_{{e}}$ = {P_e:.3f} m (parcela elétrica, calculada em 9.4.1.1)
 
     **Portanto: $D_H$ = {D_H:.3f} m**
     """)
@@ -406,22 +405,24 @@ with aba3:
             referencia_norma="ABNT NBR 5422:2024 — Seção 8.4.2"
         )
 
-    # 4. PARCELA ELÉTRICA
-    with st.expander("4. Parcela elétrica da distância de segurança (Seção 7.2.5 / 9.3.2)", expanded=True):
+    # 4. PARCELA ELÉTRICA (AGORA CORRIGIDA)
+    with st.expander("4. Parcela elétrica da distância de segurança (Seção 9.4.1.1)", expanded=True):
         bloco_memorial(
             titulo="4.1 Parcela elétrica $P_e$",
-            formula_latex=r"P_e = 1{,}642 \cdot \exp\left[\frac{U_s \cdot F_{tmo} \cdot \sqrt{2}/\sqrt{3}}{K_{aff} \cdot K_{zff} \cdot k_g} - 1\right] - 1",
+            formula_latex=r"P_e = 2{,}174 \cdot \exp\left[\frac{K_{cs} \frac{\sqrt{2}}{\sqrt{3}} U_s F_{sf}}{1080 \frac{K_{aff}}{K_{zfl}} k_g}\right] - 1",
             origem_coeficientes=f"""
             - $U_s$ = **{tensao_nominal:.1f} kV** → informado (tensão nominal)
-            - $F_{{tmo}}$ = **{fator_tensao_max:.3f}** → informado (fator de tensão máxima de operação)
+            - $F_{{sf}}$ = **{F_sf:.2f}** → informado (Tabela 14)
+            - $K_{{cs}}$ = **{k_cs:.3f}** → informado (Tabela 6)
             - $K_{{aff}}$ = **{k_aff:.3f}** → informado (fator atmosférico, Seção 4.8)
-            - $K_{{zff}}$ = **{k_zff:.3f}** → calculado por $K_{{zff}} = 1 - 3 z_{{ff}}$, com $z_{{ff}} = 0{{,}}03$ (coeficiente de variação, Seção 9.3.2) → $1 - 3 \\cdot 0{{,}}03 = {k_zff:.2f}$
+            - $K_{{zfl}}$ = **{k_zfl:.3f}** → calculado por $K_{{zfl}} = 1 - 3 z_{{fl}}$, com $z_{{fl}} = 0{{,}}03$ → $1 - 3 \\cdot 0{{,}}03 = {k_zfl:.2f}$
             - $k_g$ = **{k_g:.3f}** → **Tabela 7** (fator de espaçamento para *{tipo_obstaculo}*), valor fixado em norma, **não calculado**
-            - Constante **1,642** → coeficiente empírico da norma (Seção 9.3.2.1), **não calculado**
+            - Constante **1080** → coeficiente empírico da norma (rigidez dielétrica do ar em kV/m), **não calculado**
+            - Constante **2,174** → coeficiente empírico da norma (Seção 9.4.1.1), **não calculado**
             """,
-            substituicao_latex=rf"P_e = 1{{,}}642 \cdot \exp\left[\frac{{{tensao_max_op:.2f} \cdot \sqrt{{2}}/\sqrt{{3}}}}{{{k_aff:.3f} \cdot {k_zff:.2f} \cdot {k_g:.2f}}} - 1\right] - 1 = {P_e:.3f}\ \text{{m}}",
+            substituicao_latex=rf"P_e = 2{{,}}174 \cdot \exp\left[\frac{{{k_cs:.3f} \cdot \frac{{\sqrt{{2}}}}{{\sqrt{{3}}}} \cdot {tensao_nominal:.1f} \cdot {F_sf:.2f}}}{{1080 \cdot \frac{{{k_aff:.3f}}}{{{k_zfl:.2f}}} \cdot {k_g:.3f}}}\right] - 1 = {P_e:.3f}\ \text{{m}}",
             resultado_latex=rf"\boxed{{P_e = {P_e:.3f}\ \text{{m}}}}",
-            referencia_norma="ABNT NBR 5422:2024 — Seções 7.2.5.1 e 9.3.2, Tabela 7"
+            referencia_norma="ABNT NBR 5422:2024 — Seções 9.4.1.1, Tabelas 6, 7 e 14"
         )
 
     # 5. DISTÂNCIA HORIZONTAL DE SEGURANÇA
@@ -477,7 +478,7 @@ with aba3:
             formula_latex=r"\sigma_\beta = 2{,}25 \cdot \left[1 - \exp\left(-\frac{V_p^2}{230}\right)\right]",
             origem_coeficientes=f"""
             - $V_p$ = **{V_p30s:.2f} m/s** → calculado no item 2
-            - Constantes **2,25** e **230** → coeficientes empíricos da **Seção 8.9.3** (ref. [7]), valores fixados em norma, **não calculados**
+            - Constantes **2,25** e **230** → coeficientes empíricos da **Seção 8.9.3**, valores fixados em norma, **não calculados**
             """,
             substituicao_latex=rf"\sigma_\beta = 2{{,}}25 \cdot \left[1 - \exp\left(-\frac{{({V_p30s:.2f})^2}}{{230}}\right)\right] = {sigma_beta:.2f}^\circ",
             resultado_latex=rf"\boxed{{\sigma_\beta = {sigma_beta:.2f}^\circ}}",
