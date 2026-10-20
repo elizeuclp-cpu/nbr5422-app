@@ -32,23 +32,19 @@ CABOS_CONDUTORES = {
 # ===================================================
 # CONSTANTES DA NORMA
 # ===================================================
-RHO_PADRAO = 1.225  # kg/m³ (densidade padrão a 15°C e nível do mar)
+RHO_PADRAO = 1.225  # kg/m³
 P0 = 1013.0         # hPa
 T0 = 20.0           # °C
-Z_FL = 0.03         # Coeficiente de variação para frente lenta (Seção 9.4.1.1)
+Z_FL = 0.03         # Coeficiente de variação para frente lenta
 
 # ===================================================
 # FUNÇÕES AUXILIARES
 # ===================================================
 
 def pressao_atmosferica(altitude):
-    """Estimativa da pressão atmosférica em função da altitude (fórmula barométrica)"""
     return P0 * np.exp(-0.00012 * altitude)
 
 def densidade_ar(temperatura, altitude):
-    """
-    Seção 4.5 - Densidade relativa e massa específica do ar.
-    """
     p = pressao_atmosferica(altitude)
     delta = (p / P0) * ((273 + T0) / (273 + temperatura))
     rho = delta * RHO_PADRAO
@@ -112,13 +108,12 @@ with st.sidebar:
     
     st.subheader("⚡ Sobretensão de Frente Lenta")
     F_sf = st.number_input("Fator de sobretensão F_sf (p.u.)", min_value=1.0, max_value=5.0, value=2.5, step=0.1, 
-                           help="Tabela 14 da NBR 5422. Se não houver estudo específico, adotar valores típicos (ex: 2,5 para 138 kV).")
+                           help="Tabela 14 da NBR 5422. Se não houver estudo específico, adotar valores típicos.")
 
     st.subheader("🌡️ Atmosfera (Seção 4.5)")
     altitude = st.number_input("Altitude local (m)", min_value=0.0, max_value=3000.0, value=0.0, step=50.0)
     temp_ar = st.number_input("Temperatura do ar (°C)", min_value=-10.0, max_value=50.0, value=20.0, step=1.0)
     
-    # Cálculo da densidade aqui para exibir na sidebar
     delta_ar, rho_ar = densidade_ar(temp_ar, altitude)
     st.caption(f"Pressão atm. estimada: {pressao_atmosferica(altitude):.1f} hPa")
     st.caption(f"Densidade relativa (\(\delta\)): {delta_ar:.4f}")
@@ -136,10 +131,10 @@ with st.sidebar:
     V_R = st.number_input("Velocidade de referência V_R (m/s)", min_value=10.0, max_value=60.0, value=30.0, step=1.0)
 
     st.subheader("📐 Fatores de Segurança")
-    k_cs = 1.35 # Fixado pela norma para cálculo da faixa (Seção 17.2.2.5)
+    k_cs = 1.35
     k_aff = st.number_input("K_aff (atmosférico)", min_value=0.8, max_value=1.2, value=1.0, step=0.01)
     k_zfl = 1 - 3 * Z_FL
-    k_g = 1.28 # Fixado pela norma para cálculo da faixa (Seção 17.2.2.5)
+    k_g = 1.28
 
     st.caption("ℹ️ Para cálculo da faixa de passagem, a Seção 17.2.2.5 fixa **K_CS = 1,35** e **k_g = 1,28**.")
 
@@ -163,7 +158,7 @@ K_rug = fator_rugosidade(categoria_terreno)
 
 V_p10min = K_tur * V_R
 V_p30s = fator_integracao_10min_para_30s() * K_rug * V_p10min
-q0_30s = 0.5 * rho_ar * (V_p30s ** 2)  # Usa o rho calculado dinamicamente
+q0_30s = 0.5 * rho_ar * (V_p30s ** 2)
 
 P_e = parcela_eletrica(tensao_nominal, k_cs, k_aff, k_zfl, k_g, F_sf)
 D_H_obstaculo = P_bH + P_e
@@ -358,72 +353,212 @@ with aba2:
 with aba3:
     st.header("📖 Memorial Resumido de Cálculo")
     
+    # 1. VELOCIDADE DE VENTO DE 10 MIN
     with st.expander("1. Velocidade de vento de 10 min para projeto (Seção 8.2.1)", expanded=False):
+        texto_origem = "- $V_R$ = **" + f"{V_R:.1f}" + " m/s** → informado pelo usuário\n- $K_{tur}$ = **" + f"{K_tur:.3f}" + "** → Tabela 8 (fator de turbulência da região *" + regiao + "*), valor fixado em norma"
         bloco_memorial(
             titulo="1.1 Velocidade de 10 min para projeto",
             formula_latex=r"V_p = K_{tur} \cdot V_R",
-            origem_coeficientes=f"""
-            - $V_R$ = **{V_R:.1f} m/s** → informado pelo usuário
-            - $K_{{tur}}$ = **{K_tur:.3f}** → **Tabela 8** (fator de turbulência da região *{regiao}*), valor fixado em norma
-            """,
-            substituicao_latex=rf"V_p = {K_tur:.3f} \cdot {V_R:.1f} = {V_p10min:.2f}\ \text{{m/s}}",
-            resultado_latex=rf"\boxed{{V_p = {V_p10min:.2f}\ \text{{m/s}}}}",
+            origem_coeficientes=texto_origem,
+            substituicao_latex=f"V_p = {K_tur:.3f} \\cdot {V_R:.1f} = {V_p10min:.2f}\\ \\text{{m/s}}",
+            resultado_latex=f"\\boxed{{V_p = {V_p10min:.2f}\\ \\text{{m/s}}}}",
             referencia_norma="ABNT NBR 5422:2024 — Seção 8.2.1.1 e Tabela 8"
         )
 
+    # 2. VELOCIDADE DE 30 S
     with st.expander("2. Velocidade de vento de 30 s para projeto (Seção 8.2.2)", expanded=False):
+        texto_origem = (
+            "- $K_{int}$ = **" + f"{fator_integracao_10min_para_30s():.2f}" + "** → Tabela 9 (conversão de 10 min → 30 s)\n"
+            "- $K_{alt}$ = **" + f"{fator_altura(10.0):.3f}" + "** → calculado por $K_{alt} = (h/10)^{0.14}$, com $h = 10$ m\n"
+            "- $K_{rug}$ = **" + f"{K_rug:.3f}" + "** → Tabela 1 (categoria do terreno *" + categoria_terreno + "*)\n"
+            "- $V_p$ = **" + f"{V_p10min:.2f}" + " m/s** → calculado no item 1"
+        )
         bloco_memorial(
             titulo="2.1 Velocidade de 30 s para projeto",
             formula_latex=r"V_{p30s} = K_{int} \cdot K_{alt} \cdot K_{rug} \cdot V_p",
-            origem_coeficientes=f"""
-            - $K_{{int}}$ = **{fator_integracao_10min_para_30s():.2f}** → **Tabela 9** (conversão de 10 min → 30 s)
-            - $K_{{alt}}$ = **{fator_altura(10.0):.3f}** → calculado por $K_{{alt}} = (h/10)^{{0.14}}$, com $h = 10$ m
-            - $K_{{rug}}$ = **{K_rug:.3f}** → **Tabela 1** (categoria do terreno *{categoria_terreno}*)
-            - $V_p$ = **{V_p10min:.2f} m/s** → calculado no item 1
-            """,
-            substituicao_latex=rf"V_{{p30s}} = {fator_integracao_10min_para_30s():.2f} \cdot {fator_altura(10.0):.3f} \cdot {K_rug:.3f} \cdot {V_p10min:.2f} = {V_p30s:.2f}\ \text{{m/s}}",
-            resultado_latex=rf"\boxed{{V_{{p30s}} = {V_p30s:.2f}\ \text{{m/s}}}}",
+            origem_coeficientes=texto_origem,
+            substituicao_latex=f"V_{{p30s}} = {fator_integracao_10min_para_30s():.2f} \\cdot {fator_altura(10.0):.3f} \\cdot {K_rug:.3f} \\cdot {V_p10min:.2f} = {V_p30s:.2f}\\ \\text{{m/s}}",
+            resultado_latex=f"\\boxed{{V_{{p30s}} = {V_p30s:.2f}\\ \\text{{m/s}}}}",
             referencia_norma="ABNT NBR 5422:2024 — Seção 8.2.2.1, Tabelas 1 e 9"
         )
 
-    # ITEM 3 ATUALIZADO COM O CÁLCULO DA DENSIDADE DO AR
+    # 3. DENSIDADE DO AR E PRESSÃO DINÂMICA
     with st.expander("3. Densidade do ar e Pressão dinâmica do vento (Seções 4.5 e 8.4.2)", expanded=True):
         st.markdown("#### 3.1 Densidade relativa do ar $\\delta$")
         st.caption("📘 ABNT NBR 5422:2024 — Seção 4.5.1")
         st.latex(r"\delta = \frac{p}{p_0} \left( \frac{273 + t_0}{273 + t} \right)")
-        st.markdown(f"""
-        - $p$ = **{pressao_atmosferica(altitude):.1f} hPa** → pressão local estimada para altitude de {altitude:.0f} m
-        - $p_0$ = **1013 hPa** → pressão de referência
-        - $t$ = **{temp_ar:.1f} °C** → temperatura do ar informada
-        - $t_0$ = **20 °C** → temperatura de referência
-        """)
-        st.latex(rf"\delta = \frac{{{pressao_atmosferica(altitude):.1f}}}{{1013}} \left( \frac{{273 + 20}}{{273 + {temp_ar:.1f}}} \right) = {delta_ar:.4f}")
+        
+        st.markdown("- $p$ = **" + f"{pressao_atmosferica(altitude):.1f}" + " hPa** → pressão local estimada para altitude de " + f"{altitude:.0f}" + " m")
+        st.markdown("- $p_0$ = **1013 hPa** → pressão de referência")
+        st.markdown("- $t$ = **" + f"{temp_ar:.1f}" + " °C** → temperatura do ar informada")
+        st.markdown("- $t_0$ = **20 °C** → temperatura de referência")
+        
+        st.latex(f"\\delta = \\frac{{{pressao_atmosferica(altitude):.1f}}}{{1013}} \\left( \\frac{{273 + 20}}{{273 + {temp_ar:.1f}}} \\right) = {delta_ar:.4f}")
         
         st.markdown("#### 3.2 Massa específica do ar $\\mu$")
         st.latex(r"\mu = \delta \cdot \mu_0")
-        st.markdown(f"Onde $\\mu_0$ = 1,225 kg/m³ (valor padrão a 15°C e nível do mar).")
-        st.latex(rf"\mu = {delta_ar:.4f} \cdot 1.225 = {rho_ar:.4f}\ \text{{kg/m}}^3")
-        st.latex(rf"\boxed{{\mu = {rho_ar:.4f}\ \text{{kg/m}}^3}}")
+        st.markdown("Onde $\\mu_0$ = 1,225 kg/m³ (valor padrão a 15°C e nível do mar).")
+        st.latex(f"\\mu = {delta_ar:.4f} \\cdot 1.225 = {rho_ar:.4f}\\ \\text{{kg/m}}^3")
+        st.latex(f"\\boxed{{\\mu = {rho_ar:.4f}\\ \\text{{kg/m}}^3}}")
 
         st.markdown("---")
         st.markdown("#### 3.3 Pressão dinâmica $q_0$")
         st.caption("📘 ABNT NBR 5422:2024 — Seção 8.4.2")
         st.latex(r"q_0 = \frac{1}{2} \mu V_{p30s}^2")
-        st.markdown(f"""
-        - $\\mu$ = **{rho_ar:.4f} kg/m³** → calculado no item 3.2
-        - $V_{{p30s}}$ = **{V_p30s:.2f} m/s** → calculado no item 2
-        """)
-        st.latex(rf"q_0 = \frac{{1}}{{2}} \cdot {rho_ar:.4f} \cdot ({V_p30s:.2f})^2 = {q0_30s:.2f}\ \text{{Pa}}")
-        st.latex(rf"\boxed{{q_0 = {q0_30s:.2f}\ \text{{Pa}}}}")
+        st.markdown("- $\\mu$ = **" + f"{rho_ar:.4f}" + " kg/m³** → calculado no item 3.2")
+        st.markdown("- $V_{p30s}$ = **" + f"{V_p30s:.2f}" + " m/s** → calculado no item 2")
+        st.latex(f"q_0 = \\frac{{1}}{{2}} \\cdot {rho_ar:.4f} \\cdot ({V_p30s:.2f})^2 = {q0_30s:.2f}\\ \\text{{Pa}}")
+        st.latex(f"\\boxed{{q_0 = {q0_30s:.2f}\\ \\text{{Pa}}}}")
         st.markdown("---")
 
+    # 4. PARCELA ELÉTRICA
     with st.expander("4. Parcela elétrica da distância de segurança (Seção 9.4.1.1)", expanded=False):
+        texto_origem = (
+            "- $U_s$ = **" + f"{tensao_nominal:.1f}" + " kV** → informado\n"
+            "- $F_{sf}$ = **" + f"{F_sf:.2f}" + "** → informado (Tabela 14)\n"
+            "- $K_{cs}$ = **" + f"{k_cs:.3f}" + "** → Fixado pela norma para Faixa de Passagem (Seção 17.2.2.5)\n"
+            "- $K_{aff}$ = **" + f"{k_aff:.3f}" + "** → informado (fator atmosférico)\n"
+            "- $K_{zfl}$ = **" + f"{k_zfl:.3f}" + "** → calculado por $K_{zfl} = 1 - 3 z_{fl}$, com $z_{fl} = 0,03$\n"
+            "- $k_g$ = **" + f"{k_g:.3f}" + "** → Fixado pela norma para Faixa de Passagem (Seção 17.2.2.5)\n"
+            "- Constante **1080** → coeficiente empírico da norma\n"
+            "- Constante **2,174** → coeficiente empírico da norma"
+        )
         bloco_memorial(
             titulo="4.1 Parcela elétrica $P_e$",
             formula_latex=r"P_e = 2{,}174 \cdot \exp\left[\frac{K_{cs} \frac{\sqrt{2}}{\sqrt{3}} U_s F_{sf}}{1080 \frac{K_{aff}}{K_{zfl}} k_g}\right] - 1",
-            origem_coeficientes=f"""
-            - $U_s$ = **{tensao_nominal:.1f} kV** → informado
-            - $F_{{sf}}$ = **{F_sf:.2f}** → informado (Tabela 14)
-            - $K_{{cs}}$ = **{k_cs:.3f}** → **Fixado pela norma** para Faixa de Passagem (Seção 17.2.2.5)
-            - $K_{{aff}}$ = **{k_aff:.3f}** → informado (fator atmosférico)
-            - $K_{{zfl}}$ = **{k_zfl:.3f}** → calculado p
+            origem_coeficientes=texto_origem,
+            substituicao_latex=f"P_e = 2{{,}}174 \\cdot \\exp\\left[\\frac{{{k_cs:.3f} \\cdot \\frac{{\\sqrt{{2}}}}{{\\sqrt{{3}}}} \\cdot {tensao_nominal:.1f} \\cdot {F_sf:.2f}}}{{1080 \\cdot \\frac{{{k_aff:.3f}}}{{{k_zfl:.2f}}} \\cdot {k_g:.3f}}}\\right] - 1 = {P_e:.3f}\\ \\text{{m}}",
+            resultado_latex=f"\\boxed{{P_e = {P_e:.3f}\\ \\text{{m}}}}",
+            referencia_norma="ABNT NBR 5422:2024 — Seções 9.4.1.1, Tabelas 6, 7 e 14"
+        )
+
+    # 5. DISTÂNCIA HORIZONTAL DE SEGURANÇA
+    with st.expander("5. Distância horizontal de segurança (Seção 7.3.2)", expanded=False):
+        texto_origem = (
+            "- $P_{bH}$ = **" + f"{P_bH:.2f}" + " m** → Tabela 7 (parcela básica para *" + tipo_obstaculo + "*)\n"
+            "- $P_e$ = **" + f"{P_e:.3f}" + " m** → calculado no item 4"
+        )
+        bloco_memorial(
+            titulo="5.1 Distância horizontal de segurança $D_H$",
+            formula_latex=r"D_H = P_{bH} + P_e",
+            origem_coeficientes=texto_origem,
+            substituicao_latex=f"D_H = {P_bH:.2f} + {P_e:.3f} = {D_H_obstaculo:.3f}\\ \\text{{m}}",
+            resultado_latex=f"\\boxed{{D_H = {D_H_obstaculo:.3f}\\ \\text{{m}}}}",
+            referencia_norma="ABNT NBR 5422:2024 — Seção 7.3.2, Tabela 7"
+        )
+
+    # 6. FATOR DE EFETIVIDADE DO VENTO
+    with st.expander("6. Fator de efetividade do vento para ângulo de balanço (Figura 22)", expanded=False):
+        texto_origem = "- $V_p$ = **" + f"{V_p30s:.2f}" + " m/s** → calculado no item 2"
+        bloco_memorial(
+            titulo="6.1 Fator $K$",
+            formula_latex=r"K = 0{,}3 + 3{,}68 \cdot \exp(-0{,}163 \cdot V_p)\quad \text{para } V_p \ge 10\ \text{m/s}",
+            origem_coeficientes=texto_origem,
+            substituicao_latex=f"K = 0{{,}}3 + 3{{,}}68 \\cdot \\exp(-0{{,}}163 \\cdot {V_p30s:.2f}) = {K_bal:.3f}",
+            resultado_latex=f"\\boxed{{K = {K_bal:.3f}}}",
+            referencia_norma="ABNT NBR 5422:2024 — Figura 22 (Seção 8.9.1)"
+        )
+
+    # 7. ÂNGULO DE BALANÇO MÉDIO
+    with st.expander("7. Ângulo de balanço médio (Seção 8.9.1)", expanded=False):
+        texto_origem = (
+            "- $K$ = **" + f"{K_bal:.3f}" + "** → calculado no item 6\n"
+            "- $q_0$ = **" + f"{q0_30s:.2f}" + " Pa** → calculado no item 3.3\n"
+            "- $d$ = **" + f"{d_cabo:.5f}" + " m** → diâmetro do cabo *" + cabo_nome + "*\n"
+            "- $L_m$ = **" + f"{Lm:.1f}" + " m** → informado\n"
+            "- $p_{cond}$ = **" + f"{p_cond:.4f}" + " N/m** → peso linear do cabo\n"
+            "- $L_p$ = **" + f"{Lp:.1f}" + " m** → informado"
+        )
+        bloco_memorial(
+            titulo="7.1 Ângulo de balanço médio $\\beta$",
+            formula_latex=r"\beta = \arctan\left(K \cdot \frac{q_0 \cdot d \cdot L_m}{p_{cond} \cdot L_p}\right)",
+            origem_coeficientes=texto_origem,
+            substituicao_latex=f"\\beta = \\arctan\\left({K_bal:.3f} \\cdot \\frac{{{q0_30s:.2f} \\cdot {d_cabo:.5f} \\cdot {Lm:.1f}}}{{{p_cond:.4f} \\cdot {Lp:.1f}}}\\right) = {beta_medio:.2f}^\\circ",
+            resultado_latex=f"\\boxed{{\\beta = {beta_medio:.2f}^\\circ}}",
+            referencia_norma="ABNT NBR 5422:2024 — Seção 8.9.1"
+        )
+
+    # 8. DESVIO-PADRÃO
+    with st.expander("8. Desvio-padrão do ângulo de balanço (Seção 8.9.3)", expanded=False):
+        texto_origem = "- $V_p$ = **" + f"{V_p30s:.2f}" + " m/s** → calculado no item 2"
+        bloco_memorial(
+            titulo="8.1 Desvio-padrão $\\sigma_\\beta$",
+            formula_latex=r"\sigma_\beta = 2{,}25 \cdot \left[1 - \exp\left(-\frac{V_p^2}{230}\right)\right]",
+            origem_coeficientes=texto_origem,
+            substituicao_latex=f"\\sigma_\\beta = 2{{,}}25 \\cdot \\left[1 - \\exp\\left(-\\frac{{({V_p30s:.2f})^2}}{{230}}\\right)\\right] = {sigma_beta:.2f}^\\circ",
+            resultado_latex=f"\\boxed{{\\sigma_\\beta = {sigma_beta:.2f}^\\circ}}",
+            referencia_norma="ABNT NBR 5422:2024 — Seção 8.9.3"
+        )
+
+    # 9. ÂNGULO MÁXIMO
+    with st.expander("9. Ângulo máximo de balanço (Seção 8.9.4)", expanded=False):
+        texto_origem = (
+            "- $\\beta$ = **" + f"{beta_medio:.2f}" + "°** → calculado no item 7\n"
+            "- $\\sigma_\\beta$ = **" + f"{sigma_beta:.2f}" + "°** → calculado no item 8"
+        )
+        bloco_memorial(
+            titulo="9.1 Ângulo máximo $\\beta_{max}$",
+            formula_latex=r"\beta_{max} = \min(\beta + 2\sigma_\beta, 90^\circ)",
+            origem_coeficientes=texto_origem,
+            substituicao_latex=f"\\beta_{{max}} = \\min({beta_medio:.2f} + 2 \\cdot {sigma_beta:.2f}, 90^\\circ) = {beta_max:.2f}^\\circ",
+            resultado_latex=f"\\boxed{{\\beta_{{max}} = {beta_max:.2f}^\\circ}}",
+            referencia_norma="ABNT NBR 5422:2024 — Seção 8.9.4 (com limite físico de 90°)"
+        )
+
+    # 10. PROJEÇÕES E d
+    with st.expander("10. Projeções horizontais e parcela $d$ (Seção 17.2.2)", expanded=False):
+        texto_origem = (
+            "- $f$ = **" + f"{flecha:.2f}" + " m** → informado\n"
+            "- $L_{cad}$ = **" + f"{comprimento_cadeia:.2f}" + " m** → informado\n"
+            "- $\\beta_{max}$ = **" + f"{beta_max:.2f}" + "°** → calculado no item 9"
+        )
+        bloco_memorial(
+            titulo="10.1 Parcela $d$ (projeção da flecha + cadeia)",
+            formula_latex=r"d = f \cdot \sin(\beta_{max}) + L_{cad} \cdot \sin(\beta_{max})",
+            origem_coeficientes=texto_origem,
+            substituicao_latex=f"d = {flecha:.2f} \\cdot \\sin({beta_max:.2f}^\\circ) + {comprimento_cadeia:.2f} \\cdot \\sin({beta_max:.2f}^\\circ) = {d:.3f}\\ \\text{{m}}",
+            resultado_latex=f"\\boxed{{d = {d:.3f}\\ \\text{{m}}}}",
+            referencia_norma="ABNT NBR 5422:2024 — Seção 17.2.2.5.1"
+        )
+
+    # 11. LARGURA DA FAIXA
+    with st.expander("11. Largura total da faixa de passagem (Seção 17.2.2.5.1)", expanded=False):
+        texto_origem = (
+            "- $b$ = **" + f"{b:.2f}" + " m** → informado\n"
+            "- $d$ = **" + f"{d:.3f}" + " m** → calculado no item 10\n"
+            "- $D$ = **" + f"{D_usado:.3f}" + " m** → calculado no item 5 (ou $P_e$)"
+        )
+        bloco_memorial(
+            titulo="11.1 Largura $L$",
+            formula_latex=r"L = 2 \cdot (b + d + D)",
+            origem_coeficientes=texto_origem,
+            substituicao_latex=f"L = 2 \\cdot ({b:.2f} + {d:.3f} + {D_usado:.3f}) = {L:.2f}\\ \\text{{m}}",
+            resultado_latex=f"\\boxed{{L = {L:.2f}\\ \\text{{m}}}}",
+            referencia_norma="ABNT NBR 5422:2024 — Seção 17.2.2.5.1"
+        )
+
+    st.markdown("---")
+    st.subheader("📋 Resumo Final")
+    df_resumo = pd.DataFrame({
+        "Grandeza": ["V_p (10 min)", "V_p (30 s)", "Densidade do ar", "q_0", "P_e", "D_H (Obstáculo)", "β", "σ_β", "β_max", "d", "L"],
+        "Valor": [
+            f"{V_p10min:.2f} m/s",
+            f"{V_p30s:.2f} m/s",
+            f"{rho_ar:.4f} kg/m³",
+            f"{q0_30s:.2f} Pa",
+            f"{P_e:.3f} m",
+            f"{D_H_obstaculo:.3f} m",
+            f"{beta_medio:.2f}°",
+            f"{sigma_beta:.2f}°",
+            f"{beta_max:.2f}°",
+            f"{d:.3f} m",
+            f"{L:.2f} m"
+        ],
+        "Origem": [
+            "Item 1", "Item 2", "Item 3.2", "Item 3.3", "Item 4",
+            "Item 5", "Item 7", "Item 8", "Item 9", "Item 10", "Item 11"
+        ]
+    })
+    st.dataframe(df_resumo, hide_index=True, use_container_width=True)
+
+    st.caption("⚠️ Este app é uma ferramenta de apoio. Os resultados devem ser verificados por engenheiro responsável conforme a NBR 5422:2024.")
